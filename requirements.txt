@@ -9,3 +9,4 @@ pytesseract
 Pillow
 python-dotenv
 pytz
+gunicorn
