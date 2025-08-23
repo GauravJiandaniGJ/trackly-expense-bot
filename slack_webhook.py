@@ -18,7 +18,7 @@ app = Flask(__name__)
 required_env_vars = [
     'SPREADSHEET_ID',
     'GOOGLE_CREDS_B64',  # Using base64 encoded credentials
-    'DROPBOX_TOKEN',
+    'DROPBOX_ACCESS_TOKEN',
     'SLACK_BOT_TOKEN',
     'PORT'
 ]
@@ -50,7 +50,7 @@ def health_check():
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
-DROPBOX_TOKEN = os.environ.get("DROPBOX_TOKEN")
+DROPBOX_ACCESS_TOKEN = os.environ.get("DROPBOX_ACCESS_TOKEN")
 
 def get_google_creds():
     import base64
@@ -86,7 +86,7 @@ def extract_text_from_image(file_path):
 
 def upload_to_dropbox(file_content, filename):
     headers = {
-        "Authorization": f"Bearer {DROPBOX_TOKEN}",
+        "Authorization": f"Bearer {DROPBOX_ACCESS_TOKEN}",
         "Dropbox-API-Arg": json.dumps({
             "path": f"/{filename}",
             "mode": "add",
@@ -102,7 +102,7 @@ def upload_to_dropbox(file_content, filename):
         shared_link_resp = requests.post(
             "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
             headers={
-                "Authorization": f"Bearer {DROPBOX_TOKEN}",
+                "Authorization": f"Bearer {DROPBOX_ACCESS_TOKEN}",
                 "Content-Type": "application/json"
             },
             data=json.dumps({"path": file_path})
@@ -148,12 +148,12 @@ def append_to_google_sheet(row_data, sheet_name):
 def slack_events():
     try:
         print("\n=== NEW REQUEST RECEIVED ===")
-        
+
         # Log request details
         print(f"Method: {request.method}")
         print(f"Headers: {dict(request.headers)}")
         print(f"Content-Type: {request.content_type}")
-        
+
         # Handle CORS preflight
         if request.method == "OPTIONS":
             print("Handling CORS preflight request")
@@ -162,13 +162,13 @@ def slack_events():
             response.headers.add("Access-Control-Allow-Headers", "Content-Type")
             response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
             return response
-            
+
         # Ensure request is JSON
         if not request.is_json:
             error_msg = "ERROR: Request is not JSON"
             print(error_msg)
             return {"error": error_msg}, 400, {"Content-Type": "application/json"}
-        
+
         # Parse JSON data
         try:
             data = request.get_json()
@@ -177,7 +177,7 @@ def slack_events():
             error_msg = f"ERROR parsing JSON: {str(e)}"
             print(error_msg)
             return {"error": error_msg}, 400, {"Content-Type": "application/json"}
-            
+
         # Handle URL verification challenge
         if data and 'challenge' in data:
             challenge = data['challenge']
@@ -185,11 +185,11 @@ def slack_events():
             return {
                 "challenge": challenge
             }, 200, {"Content-Type": "application/json"}
-            
+
         if not data or 'event' not in data:
             print("ERROR: Missing event data")
             return "Bad Request: Missing event data", 400
-            
+
         event = data.get("event", {})
         user = event.get("user")
         text = event.get("text", "")
@@ -240,7 +240,7 @@ def slack_events():
 
         append_to_google_sheet(row_data, sheet_name)
         return "OK"
-        
+
     except Exception as e:
         print(f"ERROR in slack_events: {str(e)}")
         import traceback
@@ -250,10 +250,10 @@ def slack_events():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     print(f"Starting server on 0.0.0.0:{port}")
-    
+
     # Always run in production mode
     debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
-    
+
     # Use waitress for production server
     if not debug:
         from waitress import serve
