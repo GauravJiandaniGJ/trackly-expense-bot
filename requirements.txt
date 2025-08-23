@@ -11,3 +11,5 @@ python-dotenv
 pytz
 gunicorn
 waitress
+werkzeug
+flask-socketio
