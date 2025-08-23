@@ -3,7 +3,8 @@ import datetime
 import json
 import requests
 import re
-from flask import Flask, request
+from flask import Flask, request, jsonify
+import traceback
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from werkzeug.utils import secure_filename
@@ -13,13 +14,49 @@ import tempfile
 
 app = Flask(__name__)
 
+# Validate required environment variables on startup
+required_env_vars = [
+    'SPREADSHEET_ID',
+    'GOOGLE_CREDS_B64',  # Using base64 encoded credentials
+    'DROPBOX_TOKEN',
+    'SLACK_BOT_TOKEN',
+    'PORT'
+]
+
+missing_vars = [var for var in required_env_vars if not os.environ.get(var)]
+if missing_vars and os.environ.get('FLASK_DEBUG', 'false').lower() != 'true':
+    raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+@app.route('/')
+def health_check():
+    try:
+        # Test basic functionality
+        port = os.environ.get('PORT', '5000')
+        env_status = {
+            'status': 'ok',
+            'app': 'slack-expense-tracker',
+            'time': datetime.datetime.utcnow().isoformat(),
+            'port': port,
+            'environment_vars': {var: 'set' if os.environ.get(var) else 'missing' for var in required_env_vars}
+        }
+        return jsonify(env_status), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
 DROPBOX_TOKEN = os.environ.get("DROPBOX_TOKEN")
 
 def get_google_creds():
-    creds_dict = json.loads(os.environ.get("GOOGLE_CREDS_JSON"))
+    import base64
+    # Decode base64 encoded credentials
+    creds_json = base64.b64decode(os.environ.get("GOOGLE_CREDS_B64")).decode('utf-8')
+    creds_dict = json.loads(creds_json)
     return Credentials.from_authorized_user_info(creds_dict, SCOPES)
 
 def get_month_sheet_name(timestamp):
@@ -107,24 +144,47 @@ def append_to_google_sheet(row_data, sheet_name):
         body={"values": [row_data]}
     ).execute()
 
-@app.route("/slack/events", methods=["POST"])
+@app.route("/slack/events", methods=["POST", "OPTIONS"])
 def slack_events():
     try:
-        # Log incoming request
-        print("\n=== INCOMING REQUEST ===")
-        print(f"Headers: {request.headers}")
+        print("\n=== NEW REQUEST RECEIVED ===")
         
-        if not request.is_json:
-            print("ERROR: Request is not JSON")
-            return "Invalid request", 400
+        # Log request details
+        print(f"Method: {request.method}")
+        print(f"Headers: {dict(request.headers)}")
+        print(f"Content-Type: {request.content_type}")
+        
+        # Handle CORS preflight
+        if request.method == "OPTIONS":
+            print("Handling CORS preflight request")
+            response = app.make_response()
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+            response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+            return response
             
-        data = request.get_json()
-        print(f"Request data: {data}")
+        # Ensure request is JSON
+        if not request.is_json:
+            error_msg = "ERROR: Request is not JSON"
+            print(error_msg)
+            return {"error": error_msg}, 400, {"Content-Type": "application/json"}
         
+        # Parse JSON data
+        try:
+            data = request.get_json()
+            print(f"Request data: {json.dumps(data, indent=2)}")
+        except Exception as e:
+            error_msg = f"ERROR parsing JSON: {str(e)}"
+            print(error_msg)
+            return {"error": error_msg}, 400, {"Content-Type": "application/json"}
+            
         # Handle URL verification challenge
         if data and 'challenge' in data:
-            print(f"Responding to Slack challenge: {data['challenge']}")
-            return data['challenge']
+            challenge = data['challenge']
+            print(f"Responding to Slack challenge with: {challenge}")
+            return {
+                "challenge": challenge
+            }, 200, {"Content-Type": "application/json"}
             
         if not data or 'event' not in data:
             print("ERROR: Missing event data")
@@ -189,5 +249,16 @@ def slack_events():
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
-    print(f"Starting server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
+    print(f"Starting server on 0.0.0.0:{port}")
+    
+    # Always run in production mode
+    debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    
+    # Use waitress for production server
+    if not debug:
+        from waitress import serve
+        print("Running with Waitress server")
+        serve(app, host='0.0.0.0', port=port)
+    else:
+        print("Running with Flask development server")
+        app.run(host='0.0.0.0', port=port, debug=True)

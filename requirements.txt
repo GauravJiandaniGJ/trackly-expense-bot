@@ -10,3 +10,4 @@ Pillow
 python-dotenv
 pytz
 gunicorn
+waitress
