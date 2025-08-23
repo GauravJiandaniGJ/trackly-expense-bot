@@ -9,7 +9,6 @@ import os
 import json
 import datetime
 from werkzeug.utils import secure_filename
-from flask import render_template
 
 DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
 DROPBOX_ACCESS_TOKEN = os.environ.get("DROPBOX_ACCESS_TOKEN")
