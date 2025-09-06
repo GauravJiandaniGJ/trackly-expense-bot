@@ -1,0 +1,14 @@
+
+[Unit]
+Description=Trackly Slack Expense Tracker
+After=network.target
+
+[Service]
+User=your_user
+Group=your_group
+WorkingDirectory=/path/to/your/project
+ExecStart=/path/to/your/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:4002 slack_receiver:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

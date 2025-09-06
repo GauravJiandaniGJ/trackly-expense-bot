@@ -7,6 +7,7 @@ import logging
 from flask_socketio import SocketIO, emit
 from expense_analyzer import analyze_expense
 from sheets_logger import log_expense
+from threading import Thread
 
 import traceback
 
@@ -64,6 +65,10 @@ def welcome():
 def index():
     return render_template('index.html')
 
+def process_expense(event, logger):
+    expense_data = analyze_expense(event, logger)
+    log_expense(expense_data, logger)
+
 @app.route('/slack/events', methods=['POST', 'OPTIONS'])
 def slack_events():
     if request.method == 'OPTIONS':
@@ -85,9 +90,9 @@ def slack_events():
         return jsonify({'error': 'Missing event data'}), 400
 
     event = data.get("event", {})
-    expense_data = analyze_expense(event)
-    log_expense(expense_data)
-    logger.info("Expense logged successfully")
+    logger.info("New expense event received. Starting processing in a new thread.")
+    thread = Thread(target=process_expense, args=(event, logger))
+    thread.start()
 
     return jsonify({'status': 'ok'}), 200
 
