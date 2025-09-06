@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Expense</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .message {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .error-message {
+            color: #dc3545;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Log Expense</h1>
+        <div id="message" class="message" style="display: none;"></div>
+        <form id="expenseForm" action="/log_expense_from_web" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="amount">Amount</label>
+                <input type="number" id="amount" name="amount" required>
+                <div class="error-message" id="amountError"></div>
+            </div>
+            <div class="form-group">
+                <label for="currency">Currency</label>
+                <select id="currency" name="currency">
+                    <option value="USD">USD</option>
+                    <option value="INR">INR</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="paid_to">Paid To</label>
+                <input type="text" id="paid_to" name="paid_to" required>
+                <div class="error-message" id="paidToError"></div>
+            </div>
+            <div class="form-group">
+                <label for="paid_via">Paid Via</label>
+                <input type="text" id="paid_via" name="paid_via" required>
+                <div class="error-message" id="paidViaError"></div>
+            </div>
+            <div class="form-group">
+                <label for="paid_date">Paid Date</label>
+                <input type="date" id="paid_date" name="paid_date" required>
+                <div class="error-message" id="paidDateError"></div>
+            </div>
+            <div class="form-group">
+                <label for="purpose">Purpose</label>
+                <input type="text" id="purpose" name="purpose" required>
+                <div class="error-message" id="purposeError"></div>
+            </div>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="4" required></textarea>
+                <div class="error-message" id="descriptionError"></div>
+            </div>
+            <div class="form-group">
+                <label for="invoices">Invoices</label>
+                <input type="file" id="invoices" name="invoices" multiple>
+            </div>
+            <button type="submit">Log Expense</button>
+        </form>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const form = document.getElementById("expenseForm");
+            const messageDiv = document.getElementById("message");
+
+            form.addEventListener("submit", async function(event) {
+                event.preventDefault(); // Prevent default form submission
+
+                let isValid = true;
+
+                // Clear previous errors and messages
+                document.querySelectorAll(".error-message").forEach(el => el.textContent = '');
+                messageDiv.style.display = 'none';
+                messageDiv.className = 'message';
+                messageDiv.textContent = '';
+
+                // Validate Amount
+                const amount = document.getElementById("amount");
+                if (!amount.value || isNaN(amount.value)) {
+                    document.getElementById("amountError").textContent = "Amount must be a number.";
+                    isValid = false;
+                }
+
+                // Validate Paid To
+                const paidTo = document.getElementById("paid_to");
+                if (!paidTo.value.trim()) {
+                    document.getElementById("paidToError").textContent = "Paid To is required.";
+                    isValid = false;
+                }
+
+                // Validate Paid Via
+                const paidVia = document.getElementById("paid_via");
+                if (!paidVia.value.trim()) {
+                    document.getElementById("paidViaError").textContent = "Paid Via is required.";
+                    isValid = false;
+                }
+
+                // Validate Paid Date
+                const paidDate = document.getElementById("paid_date");
+                if (!paidDate.value) {
+                    document.getElementById("paidDateError").textContent = "Paid Date is required.";
+                    isValid = false;
+                }
+
+                // Validate Purpose
+                const purpose = document.getElementById("purpose");
+                if (!purpose.value.trim()) {
+                    document.getElementById("purposeError").textContent = "Purpose is required.";
+                    isValid = false;
+                }
+
+                // Validate Description
+                const description = document.getElementById("description");
+                if (!description.value.trim()) {
+                    document.getElementById("descriptionError").textContent = "Description is required.";
+                    isValid = false;
+                }
+
+                if (!isValid) {
+                    return; // Stop if client-side validation fails
+                }
+
+                // If client-side validation passes, submit via Fetch API
+                const formData = new FormData(form);
+                try {
+                    const response = await fetch(form.action, {
+                        method: form.method,
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    messageDiv.style.display = 'block';
+                    if (response.ok) {
+                        messageDiv.classList.add('success');
+                        messageDiv.textContent = result.message || 'Expense logged successfully!';
+                        form.reset(); // Clear form on success
+                    } else {
+                        messageDiv.classList.add('error');
+                        messageDiv.textContent = result.error || 'An error occurred.';
+                    }
+                } catch (error) {
+                    messageDiv.style.display = 'block';
+                    messageDiv.classList.add('error');
+                    messageDiv.textContent = 'Network error or server unreachable.';
+                    console.error('Fetch error:', error);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -66,6 +66,10 @@ def upload_to_dropbox(file_content, filename):
         if shared_link_resp.ok:
             url = shared_link_resp.json().get("url", "")
             return url.replace("?dl=0", "?dl=1")
+        else:
+            print(f"Error creating shared link: {shared_link_resp.status_code} - {shared_link_resp.text}")
+    else:
+        print(f"Error uploading to Dropbox: {response.status_code} - {response.text}")
     return None
 
 def extract_paid_via(text):
@@ -95,15 +99,44 @@ def extract_purpose(text):
         return match.group(1).strip()
     return "Not found"
 
-def analyze_expense(event, logger):
-    logger.info("Analyzing expense...")
+def analyze_expense_from_slack(event, logger):
+    logger.info("Analyzing expense from Slack...")
     user = event.get("user")
     text = event.get("text", "")
     files = event.get("files", [])
     ts = float(event.get("ts", ""))
     timestamp = datetime.datetime.fromtimestamp(ts)
-
     description = text.strip() if text else "No message"
+
+    files_data = []
+    if files:
+        for file_info in files:
+            file_url = file_info.get("url_private_download")
+            headers = {"Authorization": f"Bearer {os.environ.get('SLACK_BOT_TOKEN')}"}
+            file_response = requests.get(file_url, headers=headers)
+            if file_response.ok:
+                files_data.append((file_response.content, file_info['name']))
+            else:
+                logger.error(f"Failed to download file from Slack: {file_info['name']}")
+
+    return process_expense_data(description, files_data, user, timestamp, logger, 'slack')
+
+def analyze_expense_from_web(data, files, logger):
+    logger.info("Analyzing expense from web...")
+    user = "web_user"  # Or get from session if you have auth
+    timestamp = datetime.datetime.now()
+    description = data.get("description", "")
+
+    files_data = []
+    if files:
+        for file_info in files:
+            file_content = file_info.read()
+            file_name = file_info.filename
+            files_data.append((file_content, file_name))
+
+    return process_expense_data(description, files_data, user, timestamp, logger, 'web')
+
+def process_expense_data(description, files_data, user, timestamp, logger, source):
     amount, currency = get_currency_and_amount(description)
     paid_date = extract_paid_date(description)
     paid_via = extract_paid_via(description)
@@ -112,16 +145,15 @@ def analyze_expense(event, logger):
     dropbox_urls = []
     ocr_info = ""
 
-    if files:
-        logger.info(f"Found {len(files)} file(s) to process.")
-        for file_info in files:
-            file_url = file_info.get("url_private_download")
-            headers = {"Authorization": f"Bearer {os.environ.get('SLACK_BOT_TOKEN')}"}
-            file_response = requests.get(file_url, headers=headers)
-            if file_response.ok:
-                logger.info(f"Uploading {file_info['name']} to Dropbox...")
-                filename = f"{int(ts)}_{secure_filename(file_info['name'])}"
-                dropbox_url = upload_to_dropbox(file_response.content, filename)
+    if files_data:
+        logger.info(f"Found {len(files_data)} file(s) to process.")
+        for file_content, file_name in files_data:
+            
+
+            if file_content:
+                logger.info(f"Uploading {file_name} to Dropbox...")
+                filename = f"{int(timestamp.timestamp())}_{secure_filename(file_name)}"
+                dropbox_url = upload_to_dropbox(file_content, filename)
                 print(f"Dropbox URL: {dropbox_url}")
                 if dropbox_url:
                     logger.info("File uploaded to Dropbox successfully.")
@@ -130,7 +162,7 @@ def analyze_expense(event, logger):
                     logger.error("Failed to upload file to Dropbox.")
                 
                 with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                    tmp.write(file_response.content)
+                    tmp.write(file_content)
                     tmp.flush()
                     logger.info("Starting OCR...")
                     extracted = extract_text_from_image(tmp.name)

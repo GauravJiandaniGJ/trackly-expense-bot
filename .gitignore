@@ -7,4 +7,4 @@ __pycache__/
 *.pyc
 .env
 credentials.json
-venv
+/activity-logs

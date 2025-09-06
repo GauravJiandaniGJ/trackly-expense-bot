@@ -5,7 +5,7 @@ import json
 import datetime
 import logging
 from flask_socketio import SocketIO, emit
-from expense_analyzer import analyze_expense
+from expense_analyzer import analyze_expense_from_slack, analyze_expense_from_web
 from sheets_logger import log_expense
 from threading import Thread
 
@@ -65,8 +65,46 @@ def welcome():
 def index():
     return render_template('index.html')
 
-def process_expense(event, logger):
-    expense_data = analyze_expense(event, logger)
+@app.route('/expense')
+def expense_form():
+    return render_template('expense.html')
+
+@app.route('/log_expense_from_web', methods=['POST'])
+def log_expense_from_web():
+    data = request.form.to_dict()
+    files = request.files.getlist('invoices')
+
+    required_fields = ['amount', 'currency', 'paid_to', 'paid_via', 'paid_date', 'purpose', 'description']
+    for field in required_fields:
+        if not data.get(field):
+            logger.error(f"Missing required field: {field}")
+            return jsonify({'error': f'Missing required field: {field}'}), 400
+
+    # Validate data types
+    try:
+        float(data.get('amount'))
+    except ValueError:
+        logger.error("Invalid amount: Must be a number.")
+        return jsonify({'error': 'Invalid amount: Must be a number.'}), 400
+
+    try:
+        datetime.datetime.strptime(data.get('paid_date'), '%Y-%m-%d')
+    except ValueError:
+        logger.error("Invalid paid_date: Must be in YYYY-MM-DD format.")
+        return jsonify({'error': 'Invalid paid_date: Must be in YYYY-MM-DD format.'}), 400
+    
+    logger.info("New expense event received from web. Starting processing in a new thread.")
+    thread = Thread(target=process_web_expense, args=(data, files, logger))
+    thread.start()
+
+    return jsonify({'message': 'Expense logging started!'}), 200
+
+def process_web_expense(data, files, logger):
+    expense_data = analyze_expense_from_web(data, files, logger)
+    log_expense(expense_data, logger)
+
+def process_slack_expense(event, logger):
+    expense_data = analyze_expense_from_slack(event, logger)
     log_expense(expense_data, logger)
 
 @app.route('/slack/events', methods=['POST', 'OPTIONS'])
@@ -91,7 +129,7 @@ def slack_events():
 
     event = data.get("event", {})
     logger.info("New expense event received. Starting processing in a new thread.")
-    thread = Thread(target=process_expense, args=(event, logger))
+    thread = Thread(target=process_slack_expense, args=(event, logger))
     thread.start()
 
     return jsonify({'status': 'ok'}), 200
@@ -104,5 +142,5 @@ def handle_cors_preflight():
     return response
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('PORT', '5000'))
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)

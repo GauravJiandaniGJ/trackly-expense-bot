@@ -159,6 +159,7 @@ def log_expense(expense_data, logger):
     # 4) Build parts for rich text runs in the link cell
     urls = expense_data.get("dropbox_url") or []
     labels = expense_data.get("dropbox_texts") or expense_data.get("dropbox_labels") or []
+    logger.info(f"URLs received in sheets_logger: {urls}")
 
     parts = []
     for i, url in enumerate(urls):
@@ -168,6 +169,8 @@ def log_expense(expense_data, logger):
         if parts:
             parts.append((" , ", None))  # separator
         parts.append((str(label), str(url)))
+
+    logger.info(f"Parts list for rich text: {parts}")
 
     if parts:
         # Column index for your “Dropbox URL” cell:
