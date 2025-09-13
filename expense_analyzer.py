@@ -9,6 +9,16 @@ import os
 import json
 import datetime
 from werkzeug.utils import secure_filename
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from googleapiclient.http import MediaIoBaseUpload
+import io
+
+SCOPES = ['https://www.googleapis.com/auth/drive']
+CLIENT_SECRET_FILE = 'client_secret.json'
+TOKEN_FILE = 'token.json'
 
 DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload"
 DROPBOX_ACCESS_TOKEN = os.environ.get("DROPBOX_ACCESS_TOKEN")
@@ -71,6 +81,39 @@ def upload_to_dropbox(file_content, filename):
     else:
         print(f"Error uploading to Dropbox: {response.status_code} - {response.text}")
     return None
+
+def upload_to_google_drive(file_content, filename):
+    creds = None
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
+
+    try:
+        service = build('drive', 'v3', credentials=creds)
+
+        file_metadata = {
+            'name': filename,
+            'parents': [os.environ.get("GOOGLE_DRIVE_FOLDER_ID")]
+        }
+        media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype='application/octet-stream', resumable=True)
+        file = service.files().create(body=file_metadata, media_body=media, fields='id, webContentLink, webViewLink').execute()
+
+        # Make the file publicly accessible (optional, but needed for direct links)
+        service.permissions().create(fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}).execute()
+
+        # Return webViewLink for direct access
+        return file.get('webViewLink')
+
+    except Exception as e:
+        print(f"Error uploading to Google Drive: {e}")
+        return None
 
 def extract_paid_via(text):
     match = re.search(r'via\s(.+?)(?=\s(on|for|to)|$)', text, re.IGNORECASE)
@@ -142,7 +185,7 @@ def process_expense_data(description, files_data, user, timestamp, logger, sourc
     paid_via = extract_paid_via(description)
     paid_to = extract_paid_to(description)
     purpose = extract_purpose(description)
-    dropbox_urls = []
+    google_drive_urls = []
     ocr_info = ""
 
     if files_data:
@@ -151,15 +194,16 @@ def process_expense_data(description, files_data, user, timestamp, logger, sourc
             
 
             if file_content:
-                logger.info(f"Uploading {file_name} to Dropbox...")
+                logger.info(f"Uploading {file_name} to Google Drive...")
                 filename = f"{int(timestamp.timestamp())}_{secure_filename(file_name)}"
-                dropbox_url = upload_to_dropbox(file_content, filename)
-                print(f"Dropbox URL: {dropbox_url}")
-                if dropbox_url:
-                    logger.info("File uploaded to Dropbox successfully.")
-                    dropbox_urls.append(dropbox_url)
+                # dropbox_url = upload_to_dropbox(file_content, filename)
+                google_drive_url = upload_to_google_drive(file_content, filename)
+                print(f"Google Drive URL: {google_drive_url}")
+                if google_drive_url:
+                    logger.info("File uploaded to Google Drive successfully.")
+                    google_drive_urls.append(google_drive_url)
                 else:
-                    logger.error("Failed to upload file to Dropbox.")
+                    logger.error("Failed to upload file to Google Drive.")
                 
                 with tempfile.NamedTemporaryFile(delete=False) as tmp:
                     tmp.write(file_content)
@@ -195,11 +239,11 @@ def process_expense_data(description, files_data, user, timestamp, logger, sourc
                         ocr_info = "OCR failed"
                         logger.warning("OCR failed to extract text.")
             else:
-                dropbox_urls.append("Download error")
+                google_drive_urls.append("Download error")
     else:
         ocr_info = "OCR skipped (text provided)"
 
-    print(f"Dropbox URLs at end of analyze_expense: {dropbox_urls}")
+    print(f"Dropbox URLs at end of analyze_expense: {google_drive_urls}")
     logger.info("Expense analysis complete.")
     return {
         "timestamp": timestamp,
@@ -211,7 +255,7 @@ def process_expense_data(description, files_data, user, timestamp, logger, sourc
         "purpose": purpose,
         "description": description,
         "user": user,
-        "dropbox_url": dropbox_urls,
+        "dropbox_url": google_drive_urls,
         "ocr_info": ocr_info
     }
 

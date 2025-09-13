@@ -52,14 +52,10 @@ def append_to_google_sheet(row_data, sheet_name):
             body={"values": [header]}
         ).execute()
 
-    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=f"{sheet_name}!A:A").execute()
-    num_rows = len(result.get('values', []))
-
-    range_to_update = f"{sheet_name}!A{num_rows + 1}"
-
-    sheet.values().update(
+    print(f"Appending row to Google Sheet: {row_data}")
+    sheet.values().append(
         spreadsheetId=SPREADSHEET_ID,
-        range=range_to_update,
+        range=f"{sheet_name}!A1",
         valueInputOption="USER_ENTERED",
         body={"values": [row_data]}
     ).execute()
@@ -153,8 +149,7 @@ def log_expense(expense_data, logger):
         spreadsheetId=SPREADSHEET_ID, range=f"{sheet_name}!A:A"
     ).execute()
     num_rows = len(colA.get("values", []))  # includes header row
-    target_row_1based = num_rows  # last written row
-    target_row_0based = target_row_1based - 1
+    target_row_0based = num_rows - 1 # last written row is num_rows - 1 (0-based)
 
     # 4) Build parts for rich text runs in the link cell
     urls = expense_data.get("dropbox_url") or []
@@ -173,6 +168,7 @@ def log_expense(expense_data, logger):
     logger.info(f"Parts list for rich text: {parts}")
 
     if parts:
+        logger.info("Writing rich text hyperlinks to Google Sheet.")
         # Column index for your “Dropbox URL” cell:
         # A=0, B=1, ... K=10 → adjust if your schema differs.
         dropbox_col_idx0 = 10

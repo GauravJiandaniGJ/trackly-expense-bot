@@ -3,8 +3,8 @@ __pycache__/
 .env
 credentials.json
 venv
-__pycache__/
-*.pyc
-.env
-credentials.json
 /activity-logs
+client_secret.json
+token.json
+trackly-465813-24f45aa93800.json
+encoded-key.txt
