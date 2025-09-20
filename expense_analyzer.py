@@ -88,14 +88,24 @@ def upload_to_google_drive(file_content, filename):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Error refreshing token: {e}")
+                print("Please re-authenticate the application to get a new token.json file.")
+                return None
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)
+            print("Error: token.json not found or invalid. Please re-authenticate the application to get a new token.json file.")
+            return None
+
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
 
     try:
+        if not creds or not creds.valid:
+            print("Authentication failed. Cannot upload to Google Drive.")
+            return None
+            
         service = build('drive', 'v3', credentials=creds)
 
         file_metadata = {
